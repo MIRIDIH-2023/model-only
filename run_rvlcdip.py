@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
+import mlflow.transformers
 from datasets import ClassLabel, load_dataset, load_metric
 
 import transformers
@@ -35,6 +36,8 @@ MODEL_CLASSES = {
 }
 ##################################
 
+
+mlflow.transformers.autolog()
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.6.0")
 
@@ -341,7 +344,6 @@ def main():
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
-
     # Evaluation
     if training_args.do_eval:
         logger.info("*** Evaluate ***")

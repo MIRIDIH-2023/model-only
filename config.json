@@ -1,5 +1,5 @@
 {
-    "output_dir" : "../mlruns",
+    "output_dir" : "/finetuning",
     "data_dir" : "./rvl-cdip",
     "max_seq_length" : 1024,
     "image_size" : 224,
