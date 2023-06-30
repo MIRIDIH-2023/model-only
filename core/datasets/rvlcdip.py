@@ -238,7 +238,7 @@ class RvlCdipDataset(Dataset):
 
             upt=''
             if self.user_prompt is None:
-                r = random.randint(0,1)
+                r = random.randint(0,2)
                 if r == 0:
                     upt = 'Layout Modeling.'
                 elif r == 1:
