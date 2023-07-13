@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import random
+import pickle
 
 from tqdm import tqdm
 from PIL import Image
@@ -157,28 +158,42 @@ class RvlCdipDataset(Dataset):
 
     #NUM_LABELS = 16
 
-    def __init__(self , xml_sample_loc , json_sum_loc, image_path, tokenizer , data_args , mode='train', user_prompt=None):
+    def __init__(self , json_path, image_path, index_map, tokenizer , data_args , mode='train', user_prompt=None):
 
-        """ Structure of data directory:
+        """ Structure of data directory (OLD VERSION):
 
             --- xml_sample_loc (.csv)
                    ├── images_url
                    └── labels_url
             --- data (folder)
                    └── processed_sample{index} .json
-        """
-        self.main_df = pd.read_csv(xml_sample_loc) # xml_sample.csv 파일 저장
-        self.image_path = image_path
 
-        with open(json_sum_loc, 'r', encoding='utf8') as f:
-            self.main_json_data = json.load(f)
+        """
+
+        
+        """ Structure of data directory (NEW VERSION):
+
+            --- new_data
+                   ├── image
+                   └── json_data
+
+        """
+
+        # self.main_df = pd.read_csv(xml_sample_loc) # xml_sample.csv 파일 저장
+        self.image_path = image_path
+        self.json_path = json_path
+        self.indexmap = index_map
+        datalen = len(self.indexmap)
 
         if mode == 'train': #train ,val, test 에 따라 사용하는 data의 범위가 다름. (근데 self-supervised도 이거 필요 있나..? )
-            file_data_range = ( 0 , int(len(self.main_df) * 0.6 ) )
+            # file_data_range = ( 0 , int(len(self.main_df) * 0.6 ) )
+            file_data_range = (0, int(datalen*0.6))
         elif mode == 'val':
-            file_data_range = ( int(len(self.main_df) * 0.6 ) , int(len(self.main_df) * 0.8 ) )
+            # file_data_range = ( int(len(self.main_df) * 0.6 ) , int(len(self.main_df) * 0.8 ) )
+            file_data_range = (int(datalen*0.6), int(datalen*0.8))
         elif mode == 'test':
-            file_data_range = ( int(len(self.main_df) * 0.8 ) , int(len(self.main_df) ) )
+            # file_data_range = ( int(len(self.main_df) * 0.8 ) , int(len(self.main_df) ) )
+            file_data_range = (int(datalen*0.8), int(datalen))
         else:
             raise NotImplementedError
 
@@ -229,16 +244,13 @@ class RvlCdipDataset(Dataset):
         return labels, examples, images
 
     def __len__(self):
-        return len(self.images)
+        return len(self.indexmap)
 
     def __getitem__(self, index): #완료
-        try:
-            label = self.labels[index]
-            label = self.label_map[int(label)]
-
+        #try:
             upt=''
             if self.user_prompt is None:
-                r = random.randint(0,2)
+                r = random.randint(0,0)
                 if r == 0:
                     upt = 'Layout Modeling.'
                 elif r == 1:
@@ -248,7 +260,7 @@ class RvlCdipDataset(Dataset):
             else:
                 upt = self.user_prompt
 
-            rets, n_split = read_ocr_core_engine(json_data = self.main_json_data , user_prompt=upt, image_path = self.image_path , file_idx = index , tokenizer = self.tokenizer, max_seq_length = self.max_seq_length, num_img_embeds = self.num_img_embeds, image_size = self.image_size)
+            rets, n_split = self.read_ocr_core_engine( original_index = index, user_prompt=upt, file_idx = self.indexmap[index] , tokenizer = self.tokenizer, max_seq_length = self.max_seq_length, num_img_embeds = self.num_img_embeds, image_size = self.image_size)
             if n_split == 0:
                 # Something wrong with the .ocr.json file
                 print(f"EMPTY ENTRY in index {index}")
@@ -271,15 +283,10 @@ class RvlCdipDataset(Dataset):
                 #input_ids = self.tokenizer.convert_tokens_to_ids(text_list) #토큰 자른것들을 token id들로 변환
 
                 #input_ids, labels, bbox_input = self.cls_collator("user prompt", text_list, bbox, label) #prompt 붙여서 최종 input,bbox,label을 만듦. ################################
-                input_ids, labels, bbox_input = text_list, labels, bbox_list
+                input_ids, labels, bbox_input = text_list, labels, bbox
 
                 attention_mask = [1] * len(input_ids)
                 decoder_attention_mask = [1] * len(labels)
-
-                char_list = [0]
-                char_bbox_list = [[0,0,0,0]]
-                char_ids = torch.tensor(char_list, dtype=torch.long)
-                char_bbox_input = torch.tensor(char_bbox_list, dtype=torch.float)
 
                 bbox_input = torch.tensor(bbox_input, dtype=torch.float)
                 labels = torch.tensor(labels, dtype=torch.long)
@@ -288,7 +295,6 @@ class RvlCdipDataset(Dataset):
                 decoder_attention_mask = torch.tensor(decoder_attention_mask, dtype=torch.long)
                 assert len(bbox_input) == len(input_ids)
                 assert len(bbox_input.size()) == 2
-                assert len(char_bbox_input.size()) == 2
 
                 return_dict =  {
                     "input_ids": input_ids,
@@ -297,17 +303,15 @@ class RvlCdipDataset(Dataset):
                     "seg_data": bbox_input,
                     "visual_seg_data": visual_bbox_input,
                     "decoder_attention_mask": decoder_attention_mask,
-                    "image": image,
-                    'char_ids': char_ids,
-                    'char_seg_data': char_bbox_input
+                    "image": image
                 }
                 assert input_ids is not None
 
                 return return_dict
-        except: #오류가 났다는 거는 파일이 없다는 것. 해당 상황에서는 index+1 파일 불러오는 것으로 대체
+        #except: #오류가 났다는 거는 파일이 없다는 것. 해당 상황에서는 index+1 파일 불러오는 것으로 대체
             #image는 로딩 중 오류 생긴 파일 그냥 해당 index가 없게 저장해서 문제 없음.
             #json파일도 오류 생긴건 해당 index없어서 걸러짐.
-            return self[(index + 1) % len(self)]
+          #  return self[(index + 1) % len(self)]
 
     #def get_labels(self): # classification에서 label의 종류 출력하는 함수. 우리는 필요 없을 듯.
     #    return list(map(str, list(range(self.NUM_LABELS))))
@@ -330,102 +334,101 @@ class RvlCdipDataset(Dataset):
         assert len(sentence) == len(bbox)
         return (sentence, mask, bbox, start_token, end_token)
 
-# 해당 부분은 json파일의 문장을 line-by-line으로 읽는 것으로 해당 함수 수정 완료.
-def read_ocr_core_engine(json_data, user_prompt, image_path, file_idx, tokenizer, max_seq_length=None, num_img_embeds=None, image_size=224):
-    #max_seq_length와 num_img_embeds 는 원본 코드에서도 안쓰는데 왜있는거지?
+    # 해당 부분은 json파일의 문장을 line-by-line으로 읽는 것으로 해당 함수 수정 완료.
+    def read_ocr_core_engine(self, original_index, user_prompt, file_idx, tokenizer, max_seq_length=None, num_img_embeds=None, image_size=224):
+        #max_seq_length와 num_img_embeds 는 원본 코드에서도 안쓰는데 왜있는거지?
+        # Labeling할 토큰들을 정한다
+        if 'Layout Modeling' in user_prompt:
+            mask_ratio = 0.75
+        elif 'Visual Text Recognition' in user_prompt:
+            mask_ratio = 0.5
+        elif 'Joint Text-Layout Reconstruction' in user_prompt:
+            mask_ratio = 0.15
+        else :
+            raise ValueError('Invalid Prompt')
 
-    # Labeling할 토큰들을 정한다
-    if 'Layout Modeling' in user_prompt:
-        mask_ratio = 0.75
-    elif 'Visual Text Recognition' in user_prompt:
-        mask_ratio = 0.5
-    elif 'Joint Text-Layout Reconstruction' in user_prompt:
-        mask_ratio = 0.15
-    else :
-        raise ValueError('Invalid Prompt')
+        #file_ 와 image_dir 모두 1 2 3 ... index 임.
+        with open(self.json_path + '/' + f'processed_{file_idx}.pickle','rb') as f:
+          data = pickle.load(f)
+          f.close()
 
-    #file_ 와 image_dir 모두 1 2 3 ... index 임.    
-    data = json_data[file_idx] # 하나로 합쳐진 json파일에서 현재 idx 가져옴.
+          
+        rets = []
+        n_split = 0
+        #page_size = (1280,720)
+        page_size = data['form'][0]['sheet_size']
 
-    rets = []
-    n_split = 0
+        tmp_images =  Image.open(self.image_path + '/' + f'image_{file_idx}.png')
+        tiff_images = tmp_images.convert('RGB')
+        tmp_images.close()
 
-    #page_size = (1280,720)
-    page_size = data['form'][0]['sheet_size']
+        image = img_trans_torchvision(tiff_images, image_size)
 
-    tiff_images =  Image.open(f"{image_path}/image_{file_idx}.png")
-    tiff_images.convert('RGB')
+        collator = DataCollatorForSelfSupervisedTasks(
+          tokenizer = tokenizer,
+        )
+        sub_text_list, sub_bbox_list, labels_list = [], [], []
+        ret_text_list, ret_bbox_list = [], []
+        for form in data['form']: #문장별로 쪼갬
+          text_list, bbox_list = [], []
+          for word in form['words']: #단어별로 쪼갬
 
-    image = img_trans_torchvision(tiff_images, image_size)
+            if word == ' ': #띄어쓰기는 건너뛰기
+              continue
 
-    collator = DataCollatorForSelfSupervisedTasks(
-       tokenizer = tokenizer,
-    )
+            sub_tokens = tokenizer.tokenize(word['text']) #단어별로 쪼갠걸 다시 토큰화 (하나의 단어도 여러개의 토큰 가능)
+            for sub_token in sub_tokens:
+              text_list.append(sub_token)
+              bbox_list.append(word['box']) #현재는 단어별 bbox, 추후 문장별 bbox로도 수정 가능
+              #bbox_list.append(form['box'])
+          sub_text_list.append(text_list)
+          sub_bbox_list.append(bbox_list)
+        assert len(sub_text_list) == len(sub_bbox_list)
 
-    sub_text_list, sub_bbox_list, labels_list = [], [], []
-    ret_text_list, ret_bbox_list = [], []
-    for form in data['form']: #문장별로 쪼갬
-      text_list, bbox_list = [], []
-      for word in form['words']: #단어별로 쪼갬
+        a = 0
+        for i in range(len(sub_text_list)):
 
-        if word == ' ': #띄어쓰기는 건너뛰기
-          continue
+            group_list, group_bbox_list = mask_process(sub_bbox_list[i], mask_ratio=mask_ratio)
 
-        sub_tokens = tokenizer.tokenize(word['text']) #단어별로 쪼갠걸 다시 토큰화 (하나의 단어도 여러개의 토큰 가능)
-        for sub_token in sub_tokens:
-          text_list.append(sub_token)
-          bbox_list.append(word['box']) #현재는 단어별 bbox, 추후 문장별 bbox로도 수정 가능
-          #bbox_list.append(form['box'])
-      sub_text_list.append(text_list)
-      sub_bbox_list.append(bbox_list)
+            b = a + len(group_list)
+            numbering_list = [i%100 for i in range(a,b)]
+            a = b
 
-    assert len(sub_text_list) == len(sub_bbox_list)
+            # range를 토대로 numbering list를 만든다
+            ids_list = tokenizer.convert_tokens_to_ids(sub_text_list[i])
 
-    a = 0
-    for i in range(len(sub_text_list)):
+            # 변수 설명
+            # user_prompt = 말 그대로 user_prompt
+            # ids_list = 한 문장의 token들을 index(id)로 변환한 것들을 모아놓은 리스트 (그룹화 안됨)
+            # bbox_list = 한 문장의 token들에 대응하는 bounding box를 모아놓은 리스트(그룹화 안됨)
+            # group_list = masking할 범위를 slice (e.g. [a,b]) 형태로 저장해 놓은 것들의 리스트 (그룹화 됨)
+            # group_bbox_list = group_list에 대응하는, 즉 그룹화 된 것들에 대응하는 bounding box를 모아놓은 리스트 (그룹화 됨)
+            # numbering_list = sentinel_token에 번호를 부여하기 위해 넘겨주는 리스트
+            # page_size = 이미지 가로세로 (bbox 정규화하여 라벨링할 때 사용)
+            # 왜 collator 안에서 bbox를 정규화함??
+            #  -> 우리가 만든 rvlcdip 데이터셋 클래스 안에서 read_ocr(이 함수)에서 받은 bbox 정규화를 하기 때문에
+            #  여기서 bbox를 정규화하면 좀 귀찮아지기 때문에 collator 안에서 하는 게 좋다 
+            #
+            # Collator 안에서 이 변수들을 활용하여 labeling 및 sentinel token을 붙인 후 리턴하시면 됩니다
+            # Collator에서 labeling할 때에는 ids_list, 혹은 bbox_list를 기준으로 iteration을 하되
+            # group_list를 보면서 만약 index가 group_list에 있는 slice들중 하나에 해당된다, 하면은
+            # sentinel token을 붙이고, slice에 포함된 범위는 masking한 뒤 labeling을 적절히 하시면 되겠습니다
+            input_ids, labels, bbox_list = collator(user_prompt, ids_list, sub_bbox_list[i], group_list, group_bbox_list, numbering_list, tiff_images.size)
+            ret_text_list += input_ids
+            ret_bbox_list += bbox_list
+            labels_list += labels
+        
+        prompt_ids = tokenizer.encode(user_prompt, add_special_tokens=False)
+        length = len(prompt_ids)
+        ret_text_list = prompt_ids + ret_text_list
+        ret_bbox_list = [[0,0,0,0]] * length + ret_bbox_list
+        
+        if len(text_list) > 0:
+          ret_text_list += [1] # </s> token
+          ret_bbox_list.append([0,0,0,0]) # </s> token's bbox
+          labels_list += [1] # </s> token
+          rets.append([ret_text_list, ret_bbox_list, labels_list, image, page_size])
 
-        group_list, group_bbox_list = mask_process(sub_bbox_list[i], mask_ratio=mask_ratio)
-
-        b = a + len(group_list)
-        numbering_list = [i%100 for i in range(a,b)]
-        a = b
-
-        # range를 토대로 numbering list를 만든다
-        ids_list = tokenizer.convert_tokens_to_ids(sub_text_list[i])
-
-        # 변수 설명
-        # user_prompt = 말 그대로 user_prompt
-        # ids_list = 한 문장의 token들을 index(id)로 변환한 것들을 모아놓은 리스트 (그룹화 안됨)
-        # bbox_list = 한 문장의 token들에 대응하는 bounding box를 모아놓은 리스트(그룹화 안됨)
-        # group_list = masking할 범위를 slice (e.g. [a,b]) 형태로 저장해 놓은 것들의 리스트 (그룹화 됨)
-        # group_bbox_list = group_list에 대응하는, 즉 그룹화 된 것들에 대응하는 bounding box를 모아놓은 리스트 (그룹화 됨)
-        # numbering_list = sentinel_token에 번호를 부여하기 위해 넘겨주는 리스트
-        # page_size = 이미지 가로세로 (bbox 정규화하여 라벨링할 때 사용)
-        # 왜 collator 안에서 bbox를 정규화함??
-        #  -> 우리가 만든 rvlcdip 데이터셋 클래스 안에서 read_ocr(이 함수)에서 받은 bbox 정규화를 하기 때문에
-        #  여기서 bbox를 정규화하면 좀 귀찮아지기 때문에 collator 안에서 하는 게 좋다 
-        #
-        # Collator 안에서 이 변수들을 활용하여 labeling 및 sentinel token을 붙인 후 리턴하시면 됩니다
-        # Collator에서 labeling할 때에는 ids_list, 혹은 bbox_list를 기준으로 iteration을 하되
-        # group_list를 보면서 만약 index가 group_list에 있는 slice들중 하나에 해당된다, 하면은
-        # sentinel token을 붙이고, slice에 포함된 범위는 masking한 뒤 labeling을 적절히 하시면 되겠습니다
-        input_ids, labels, bbox_list = collator(user_prompt, ids_list, sub_bbox_list[i], group_list, group_bbox_list, numbering_list, tiff_images.size)
-        ret_text_list += input_ids
-        ret_bbox_list += bbox_list
-        labels_list += labels
-    
-    prompt_ids = tokenizer.encode(user_prompt, add_special_tokens=False)
-    length = len(prompt_ids)
-    ret_text_list = prompt_ids + ret_text_list
-    ret_bbox_list = [[0,0,0,0]] * length + ret_bbox_list
-
-    if len(text_list) > 0:
-      ret_text_list += [1] # </s> token
-      ret_bbox_list.append([0,0,0,0]) # </s> token's bbox
-      labels_list += [1] # </s> token
-      rets.append([ret_text_list, ret_bbox_list, labels_list, image, page_size])
-
-    assert len(ret_text_list) == len(ret_bbox_list)
-    n_split = len(rets)
-
-    return rets, n_split
+        assert len(ret_text_list) == len(ret_bbox_list)
+        n_split = len(rets)
+        return rets, n_split

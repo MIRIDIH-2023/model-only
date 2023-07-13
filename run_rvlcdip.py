@@ -4,11 +4,14 @@
 import logging
 import os
 import sys
+import json
+import torch
+import pickle
+import random
 from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
-import mlflow.transformers
 from datasets import ClassLabel, load_dataset, load_metric
 
 import transformers
@@ -24,10 +27,13 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
-
+from transformers import T5Tokenizer, AutoTokenizer
+from transformers.configuration_utils import PretrainedConfig
+import sentencepiece
 from core.datasets import RvlCdipDataset, get_rvlcdip_labels
 from core.trainers import DataCollator
 from core.models import UdopDualForConditionalGeneration, UdopUnimodelForConditionalGeneration, UdopConfig, UdopTokenizer
+
 
 ####### 우리는 udop unimodel로 사용 ###
 MODEL_CLASSES = {
@@ -36,8 +42,6 @@ MODEL_CLASSES = {
 }
 ##################################
 
-
-mlflow.transformers.autolog()
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.6.0")
 
@@ -146,7 +150,7 @@ class ModelArguments:
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
     )
     tokenizer_name: Optional[str] = field( #tokenizer 경로. custom사용 가정
-        default="./tokenizer_finetuned_ket5_by_xml_data", 
+        default="tokenizer_finetuned_ket5_by_xml_data", 
         metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
     )
     cache_dir: Optional[str] = field( #pretrained model 저장 장소
@@ -174,6 +178,7 @@ def main():
     # See all possible arguments in layoutlmft/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
+    
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -254,45 +259,59 @@ def main():
     )
     
     ########################### when using custom tokenizer ################################
-    
-    tokenizer = tokenizer_type.from_pretrained(
-        model_args.tokenizer_name, #if model_args.tokenizer_name else model_args.model_name_or_path,
+
+    #tokenizer = AutoTokenizer.from_pretrained("tokenizer_finetuned_ket5_by_xml_data")
+    '''
+    tokenizer = UdopTokenizer.from_pretrained(
+        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
-        #use_fast=False,
-        #revision=model_args.model_revision,
-        #use_auth_token=True if model_args.use_auth_token else None,
+        use_fast=True,
+        revision=model_args.model_revision,
+        use_auth_token=True if model_args.use_auth_token else None,
     )
-    
+    '''
+    tokenizer = AutoTokenizer.from_pretrained('ket5-finetuned')
     #######################################################################################
     
-    #model = model_type.from_pretrained(
-    #    model_args.model_name_or_path,
-    #    from_tf=bool(".ckpt" in model_args.model_name_or_path),
-    #    config=config,
-    #    cache_dir=model_args.cache_dir,
-    #    revision=model_args.model_revision,
-    #    use_auth_token=True if model_args.use_auth_token else None,
-    #)
+    model = model_type.from_pretrained(
+        model_args.model_name_or_path,
+        from_tf=bool(".ckpt" in model_args.model_name_or_path),
+        config=config,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+        ignore_mismatched_sizes=True,
+        use_auth_token=True if model_args.use_auth_token else None,
+    )
 
-    model = UdopUnimodelForConditionalGeneration.from_pretrained("udop-unimodel-large-224")
+    '''
+    with open('./modelconfig.json', 'r') as jsonfile:
+        cf = json.load(jsonfile)
+    ptcf = PretrainedConfig(**cf)
+    print(ptcf)
+    model = UdopUnimodelForConditionalGeneration(ptcf)
 
+    print(torch.cuda.get_device_name(0))
+    '''
     ################################################### revised start ############################################
-    xml_sample_loc = './XML_sample.csv'
-    json_sum_loc = './sumall_processed_sample.json'
-    image_path = './image'
+    json_path = '/content/json_data'
+    image_path = '/content/image'
     
+    indexmap = None
+    with open('./no_outside_lst.pickle','rb') as f:
+        indexmap = pickle.load(f)
+        f.close()
+    random.shuffle(indexmap)
    # Get datasets
-    train_dataset = (RvlCdipDataset(xml_sample_loc=xml_sample_loc,
-                                    json_sum_loc = json_sum_loc,
+    train_dataset = (RvlCdipDataset(json_path = json_path,
                                     image_path = image_path,
-                                    data_args=data_args, 
+                                    index_map = indexmap,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     data_args=data_args, 
                                     tokenizer=tokenizer, 
                                     mode='train')
                      if training_args.do_train else None)
     # TODO: for now use use test dataset for all evaluation -- will use both later                     
-    eval_dataset = (RvlCdipDataset(xml_sample_loc=xml_sample_loc,
-                                    json_sum_loc = json_sum_loc,
+    eval_dataset = (RvlCdipDataset(json_path = json_path,
                                     image_path = image_path,
+                                    index_map = indexmap,
                                     data_args=data_args, 
                                     tokenizer=tokenizer,  
                                     mode='test')

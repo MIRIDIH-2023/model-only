@@ -112,7 +112,8 @@ class DataCollatorForT5LayoutModeling:
         slice_pointer=0
         L = len(group_list)
         input_len = len(input_ids)
-        for i in range(input_len):
+        i = 0
+        while i < input_len:
             if slice_pointer < L and i == group_list[slice_pointer][0]:
                 temp_ids = self.tokenizer.encode(f'<extra_l_id_{label_numbering[slice_pointer]}>', add_special_tokens=True)[:-1]
                 res_input_ids += temp_ids
@@ -120,7 +121,7 @@ class DataCollatorForT5LayoutModeling:
                 res_bbox_list += [[0,0,0,0]] * len(temp_ids)
                 res_bbox_list.append(bbox_list[i])
             elif slice_pointer < L and i == group_list[slice_pointer][1] :
-                temp_ids = self.tokenizer.encode(f'</extra_l_id{label_numbering[slice_pointer]}>', add_special_tokens=True)[:-1]
+                temp_ids = self.tokenizer.encode(f'</extra_l_id_{label_numbering[slice_pointer]}>', add_special_tokens=True)[:-1]
                 res_input_ids += temp_ids
                 res_input_ids.append(input_ids[i])
                 res_bbox_list += [[0,0,0,0]] * len(temp_ids)
@@ -129,9 +130,10 @@ class DataCollatorForT5LayoutModeling:
             else:
                 res_input_ids.append(input_ids[i])
                 res_bbox_list.append(bbox_list[i])
+            i += 1
                 
         if slice_pointer < L and input_len == group_list[slice_pointer][1] :
-            temp_ids = self.tokenizer.encode(f'</extra_l_id{label_numbering[slice_pointer]}>', add_special_tokens=True)[:-1]
+            temp_ids = self.tokenizer.encode(f'</extra_l_id_{label_numbering[slice_pointer]}>', add_special_tokens=True)[:-1]
             res_input_ids += temp_ids
             res_bbox_list += [[0,0,0,0]] * len(temp_ids)
         
@@ -173,7 +175,8 @@ class DataCollatorForT5VisTextRec:
 
         slice_pointer=0
         L = len(group_list)
-        for i in range(len(input_ids)):
+        i = 0
+        while i < len(input_ids):
             if slice_pointer < L and i == group_list[slice_pointer][0]:
                 tmp_input_ids += self.tokenizer.encode(f'<extra_t_id_{label_numbering[slice_pointer]}>', add_special_tokens=True)[:-1]
                 #print(f'extra : {len(self.tokenizer.encode(f"<extra_t_id_{label_numbering[slice_pointer]}>", add_special_tokens=True)[:-1])}')
@@ -196,6 +199,7 @@ class DataCollatorForT5VisTextRec:
             else:
                 tmp_input_ids.append(input_ids[i])
                 tmp_bbox_list.append(bbox_list[i])
+                i += 1
 
         return tmp_input_ids, labels, tmp_bbox_list
 
@@ -217,15 +221,7 @@ class DataCollatorForT5JointReconstruction:
         prompt_text = user_prompt
         length = 0
         tmp_input_ids = []
-        if label_numbering[0] == 0:
-            prompt_ids =  self.tokenizer.encode(prompt_text, add_special_tokens=False)
-            length = len(prompt_ids)
-            tmp_input_ids = prompt_ids
-            tmp_bbox_list = [[0,0,0,0]] * length
-        else:
-            length = 0
-            tmp_input_ids = []
-            tmp_bbox_list = []
+        tmp_bbox_list = []
 
         # TODO: 라벨링 하기 (Visual_Text_Recognition_Test.py 참고하면서)
         labels = []
@@ -239,7 +235,8 @@ class DataCollatorForT5JointReconstruction:
 
         slice_pointer=0
         L = len(group_list)
-        for i in range(len(input_ids)):
+        i = 0 
+        while i < len(input_ids):
             if slice_pointer < L and i == group_list[slice_pointer][0]:
                 tmp_input_ids += self.tokenizer.encode(f'<extra_id_{label_numbering[slice_pointer]}>', add_special_tokens=False)
                 tmp_bbox_list.append([0,0,0,0])
@@ -249,6 +246,7 @@ class DataCollatorForT5JointReconstruction:
             else:
                 tmp_input_ids.append(input_ids[i])
                 tmp_bbox_list.append(bbox_list[i])
+                i += 1
 
         return tmp_input_ids, labels, tmp_bbox_list
     

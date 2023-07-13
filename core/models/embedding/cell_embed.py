@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 class CellEmbeddings(nn.Module):
-    def __init__(self, max_2d_position_embeddings=501, hidden_size=1024, ccat=False):
+    def __init__(self, max_2d_position_embeddings=501, hidden_size=512, ccat=False):
         super(CellEmbeddings, self).__init__()
         self.ccat = ccat
         self.max_2d_position_embeddings = max_2d_position_embeddings

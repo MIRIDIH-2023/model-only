@@ -4,7 +4,7 @@ import sentencepiece as spm
 
 # The special tokens of T5Tokenizer is hard-coded with <extra_id_{}>
 # Created another class UDOPTokenizer extending it to add special visual tokens like <loc_{}>, etc.
-class UdopTokenizer(AutoTokenizer):
+class UdopTokenizer(T5Tokenizer):
 
     def __init__(
         self,
