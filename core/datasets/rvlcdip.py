@@ -188,12 +188,15 @@ class RvlCdipDataset(Dataset):
         if mode == 'train': #train ,val, test 에 따라 사용하는 data의 범위가 다름. (근데 self-supervised도 이거 필요 있나..? )
             # file_data_range = ( 0 , int(len(self.main_df) * 0.6 ) )
             file_data_range = (0, int(datalen*0.6))
+            self.indexmap = self.indexmap[0:int(datalen*0.6)]
         elif mode == 'val':
             # file_data_range = ( int(len(self.main_df) * 0.6 ) , int(len(self.main_df) * 0.8 ) )
             file_data_range = (int(datalen*0.6), int(datalen*0.8))
+            self.indexmap = self.indexmap[int(datalen*0.6):int(datalen*0.8)]
         elif mode == 'test':
             # file_data_range = ( int(len(self.main_df) * 0.8 ) , int(len(self.main_df) ) )
             file_data_range = (int(datalen*0.8), int(datalen))
+            self.indexmap = self.indexmap[int(datalen*0.8):int(datalen)]
         else:
             raise NotImplementedError
 
